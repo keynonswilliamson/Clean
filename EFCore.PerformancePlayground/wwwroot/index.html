@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EF Core Performance Playground</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        select, button {
+            padding: 12px 20px;
+            font-size: 16px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        select {
+            min-width: 250px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            font-weight: bold;
+            padding: 12px 30px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .status.running {
+            background: #fff3cd;
+            color: #856404;
+            border: 2px solid #ffc107;
+        }
+
+        .status.ready {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #dc3545;
+        }
+
+        .results-container {
+            margin-top: 30px;
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .results-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .results-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .results-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .speedup-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .speedup-good {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .speedup-excellent {
+            background: #c3e6cb;
+            color: #0d4f1c;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 EF Core Performance Playground</h1>
+        <p class="subtitle">Compare EF Core 8 performance techniques side-by-side</p>
+
+        <div class="controls">
+            <select id="scenarioSelect">
+                <option value="all">All Scenarios</option>
+                <option value="tracking">Tracking vs AsNoTracking</option>
+                <option value="iqueryable">IQueryable vs IEnumerable</option>
+                <option value="projection">Projection vs Entities</option>
+                <option value="compiled">Compiled Queries</option>
+                <option value="batching">Batching (Multiple Queries vs Single Include)</option>
+                <option value="querymethod">Query Method Comparison (LINQ vs FromSqlRaw vs Raw SQL)</option>
+            </select>
+            <button id="runButton" onclick="runBenchmark()">Run Benchmark</button>
+        </div>
+
+        <div id="status" class="status ready">Ready to run benchmarks</div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Running benchmark... This may take a moment.</p>
+        </div>
+
+        <div id="resultsContainer" class="results-container"></div>
+    </div>
+
+    <script>
+        async function runBenchmark() {
+            const scenario = document.getElementById('scenarioSelect').value;
+            const statusDiv = document.getElementById('status');
+            const loadingDiv = document.getElementById('loading');
+            const resultsDiv = document.getElementById('resultsContainer');
+            const runButton = document.getElementById('runButton');
+
+            // Update UI
+            runButton.disabled = true;
+            statusDiv.className = 'status running';
+            statusDiv.textContent = `Running ${scenario === 'all' ? 'all scenarios' : 'scenario: ' + scenario}...`;
+            loadingDiv.classList.add('active');
+            resultsDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ scenario })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.className = 'status ready';
+                    statusDiv.textContent = `Benchmark completed successfully!`;
+                    displayResults(data.results);
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `Error: ${error.message}`;
+                console.error('Error:', error);
+            } finally {
+                loadingDiv.classList.remove('active');
+                runButton.disabled = false;
+            }
+        }
+
+        function displayResults(results) {
+            const container = document.getElementById('resultsContainer');
+            
+            if (!results || results.length === 0) {
+                container.innerHTML = '<p>No results to display.</p>';
+                return;
+            }
+
+            // Create summary statistics
+            const totalTime = results.reduce((sum, r) => sum + r.approach1Time + r.approach2Time, 0);
+            const avgSpeedup = results.reduce((sum, r) => sum + r.speedup, 0) / results.length;
+            const bestSpeedup = Math.max(...results.map(r => r.speedup));
+            const bestScenario = results.find(r => r.speedup === bestSpeedup);
+
+            const summaryHtml = `
+                <div class="summary-stats">
+                    <div class="stat-card">
+                        <div class="value">${results.length}</div>
+                        <div class="label">Scenarios Run</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value">${avgSpeedup.toFixed(2)}x</div>
+                        <div class="label">Average Speedup</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value">${bestSpeedup.toFixed(2)}x</div>
+                        <div class="label">Best Speedup</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value">${(totalTime / 1000).toFixed(2)}s</div>
+                        <div class="label">Total Time</div>
+                    </div>
+                </div>
+            `;
+
+            // Create results table
+            const tableHtml = `
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Scenario</th>
+                            <th>Approach 1</th>
+                            <th>Time 1 (ms)</th>
+                            <th>Approach 2</th>
+                            <th>Time 2 (ms)</th>
+                            <th>Speedup</th>
+                            <th>Time Saved</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${results.map(r => `
+                            <tr>
+                                <td><strong>${escapeHtml(r.scenarioName)}</strong></td>
+                                <td>${escapeHtml(r.approach1)}</td>
+                                <td>${r.approach1Time}</td>
+                                <td>${escapeHtml(r.approach2)}</td>
+                                <td>${r.approach2Time}</td>
+                                <td>
+                                    <span class="speedup-badge ${getSpeedupClass(r.speedup)}">
+                                        ${r.speedup.toFixed(2)}x
+                                    </span>
+                                </td>
+                                <td>${r.timeSaved} ms (${r.timeSavedPercent.toFixed(1)}%)</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = summaryHtml + tableHtml;
+        }
+
+        function getSpeedupClass(speedup) {
+            if (speedup >= 3) return 'speedup-excellent';
+            if (speedup >= 1.5) return 'speedup-good';
+            return '';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check status on load
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'Ready') {
+                    console.log('API ready');
+                }
+            })
+            .catch(err => console.error('Status check failed:', err));
+    </script>
+</body>
+</html>
+

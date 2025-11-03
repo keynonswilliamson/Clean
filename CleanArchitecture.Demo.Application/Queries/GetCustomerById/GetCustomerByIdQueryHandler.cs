@@ -7,14 +7,14 @@ namespace CleanArchitecture.Demo.Application.Queries.GetCustomerById;
 
 public class GetCustomerByIdQueryHandler : IRequestHandler<GetCustomerByIdQuery, CustomerDto?>
 {
-    private readonly ICustomerRepository _customerRepository;
+    private readonly IApplicationDbContext _context;
     private readonly ILogger<GetCustomerByIdQueryHandler> _logger;
 
     public GetCustomerByIdQueryHandler(
-        ICustomerRepository customerRepository,
+        IApplicationDbContext context,
         ILogger<GetCustomerByIdQueryHandler> logger)
     {
-        _customerRepository = customerRepository;
+        _context = context;
         _logger = logger;
     }
 
@@ -22,7 +22,7 @@ public class GetCustomerByIdQueryHandler : IRequestHandler<GetCustomerByIdQuery,
     {
         _logger.LogInformation("Getting customer by ID: {CustomerId}", request.Id);
 
-        var customer = await _customerRepository.GetByIdAsync(request.Id, cancellationToken);
+        var customer = await _context.GetCustomerByIdAsync(request.Id, cancellationToken);
         
         if (customer == null)
         {

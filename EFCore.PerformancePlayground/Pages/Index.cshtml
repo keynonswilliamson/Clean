@@ -1,0 +1,173 @@
+@page
+@model EFCore.PerformancePlayground.Pages.IndexModel
+@{
+    ViewData["Title"] = "EF Core Performance Playground";
+}
+
+<div class="container">
+    <h1>🚀 EF Core Performance Playground</h1>
+<p class="subtitle">Compare EF Core 8 performance techniques side-by-side</p>
+
+<div class="controls">
+    <select id="scenarioSelect">
+        <option value="all">All Scenarios</option>
+        <option value="tracking">Tracking vs AsNoTracking</option>
+        <option value="iqueryable">IQueryable vs IEnumerable</option>
+        <option value="projection">Projection vs Entities</option>
+        <option value="compiled">Compiled Queries</option>
+        <option value="batching">Batching (Multiple Queries vs Single Include)</option>
+        <option value="querymethod">Query Method Comparison (LINQ vs FromSqlRaw vs Raw SQL)</option>
+    </select>
+    <button id="runButton" onclick="runBenchmark()">Run Benchmark</button>
+</div>
+
+<div id="status" class="status ready">Ready to run benchmarks</div>
+
+<div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Running benchmark... This may take a moment.</p>
+</div>
+
+    <div id="resultsContainer" class="results-container"></div>
+</div>
+
+@section Scripts {
+    <script>
+        async function runBenchmark() {
+            const scenario = document.getElementById('scenarioSelect').value;
+            const statusDiv = document.getElementById('status');
+            const loadingDiv = document.getElementById('loading');
+            const resultsDiv = document.getElementById('resultsContainer');
+            const runButton = document.getElementById('runButton');
+
+            // Update UI
+            runButton.disabled = true;
+            statusDiv.className = 'status running';
+            statusDiv.textContent = `Running ${scenario === 'all' ? 'all scenarios' : 'scenario: ' + scenario}...`;
+            loadingDiv.classList.add('active');
+            resultsDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ scenario })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.className = 'status ready';
+                    statusDiv.textContent = `Benchmark completed successfully!`;
+                    displayResults(data.results);
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `Error: ${error.message}`;
+                console.error('Error:', error);
+            } finally {
+                loadingDiv.classList.remove('active');
+                runButton.disabled = false;
+            }
+        }
+
+        function displayResults(results) {
+            const container = document.getElementById('resultsContainer');
+            
+            if (!results || results.length === 0) {
+                container.innerHTML = '<p>No results to display.</p>';
+                return;
+            }
+
+            // Create summary statistics
+            const totalTime = results.reduce((sum, r) => sum + r.approach1Time + r.approach2Time, 0);
+            const avgSpeedup = results.reduce((sum, r) => sum + r.speedup, 0) / results.length;
+            const bestSpeedup = Math.max(...results.map(r => r.speedup));
+            const bestScenario = results.find(r => r.speedup === bestSpeedup);
+
+            const summaryHtml = `
+                <div class="summary-stats">
+                    <div class="stat-card">
+                        <div class="value">${results.length}</div>
+                        <div class="label">Scenarios Run</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value">${avgSpeedup.toFixed(2)}x</div>
+                        <div class="label">Average Speedup</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value">${bestSpeedup.toFixed(2)}x</div>
+                        <div class="label">Best Speedup</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value">${(totalTime / 1000).toFixed(2)}s</div>
+                        <div class="label">Total Time</div>
+                    </div>
+                </div>
+            `;
+
+            // Create results table
+            const tableHtml = `
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Scenario</th>
+                            <th>Approach 1</th>
+                            <th>Time 1 (ms)</th>
+                            <th>Approach 2</th>
+                            <th>Time 2 (ms)</th>
+                            <th>Speedup</th>
+                            <th>Time Saved</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${results.map(r => `
+                            <tr>
+                                <td><strong>${escapeHtml(r.scenarioName)}</strong></td>
+                                <td>${escapeHtml(r.approach1)}</td>
+                                <td>${r.approach1Time}</td>
+                                <td>${escapeHtml(r.approach2)}</td>
+                                <td>${r.approach2Time}</td>
+                                <td>
+                                    <span class="speedup-badge ${getSpeedupClass(r.speedup)}">
+                                        ${r.speedup.toFixed(2)}x
+                                    </span>
+                                </td>
+                                <td>${r.timeSaved} ms (${r.timeSavedPercent.toFixed(1)}%)</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = summaryHtml + tableHtml;
+        }
+
+        function getSpeedupClass(speedup) {
+            if (speedup >= 3) return 'speedup-excellent';
+            if (speedup >= 1.5) return 'speedup-good';
+            return '';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check status on load
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'Ready') {
+                    console.log('API ready');
+                }
+            })
+            .catch(err => console.error('Status check failed:', err));
+    </script>
+}
+
